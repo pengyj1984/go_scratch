@@ -27,6 +27,19 @@ func main() {
 	q := &Square{6}
 	shapes := []Shaper{r, q}
 	for _, s := range shapes {
-		fmt.Println("面积 = ", s.Area())
+		fmt.Printf("类型 = %T, 面积 = %f\n", s, s.Area())
+		switch t := s.(type){
+		case Rectangle:
+			fmt.Printf("Type = %T, area = %f\n", t, t.Area())
+		case *Square:
+			fmt.Printf("Type = %T, area = %f\n", t, t.Area())
+		default:
+			fmt.Printf("Unknown type")
+		}
+	}
+
+	var sh Shaper = q
+	if v, ok := sh.(*Square); ok{
+		fmt.Printf("v = %T\n", v)
 	}
 }
