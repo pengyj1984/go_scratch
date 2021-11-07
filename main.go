@@ -1,45 +1,60 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"math/rand"
+	"time"
+)
 
-type Shaper interface {
-	Area() float32
+func Count(ch chan int, i int) {
+	time.Sleep(3 * 1e9)
+	fmt.Printf("Counting %d, time: %d\n", i, time.Now().Nanosecond())
+	ch <- i
 }
 
-type Square struct {
-	side float32
-}
-
-func (sq *Square) Area() float32 {
-	return sq.side * sq.side
-}
-
-type Rectangle struct {
-	length, width float32
-}
-
-func (r Rectangle) Area() float32 {
-	return r.length * r.width
+func Read(ch chan int) {
+	for i := 0; i < 10; i++ {
+		v := rand.Int() & 15
+		for j := 0; j < v; j++ {
+			ch <- j
+		}
+		fmt.Printf("Read %d numbers at time %d\n", v, time.Now().Nanosecond())
+	}
+	close(ch)
 }
 
 func main() {
-	r := Rectangle{5, 3}
-	q := &Square{6}
-	shapes := []Shaper{r, q}
-	for _, s := range shapes {
-		fmt.Printf("类型 = %T, 面积 = %f\n", s, s.Area())
-		switch t := s.(type){
-		case Rectangle:
-			fmt.Printf("Type = %T, area = %f\n", t, t.Area())
-		case *Square:
-			fmt.Printf("Type = %T, area = %f\n", t, t.Area())
-		default:
-			fmt.Printf("Unknown type")
-		}
-	}
+	fmt.Printf("Start at %d\n", time.Now().Nanosecond())
+	//chs := make([]chan int , 10)
+	//for i := 0; i < 10; i++{
+	//	chs[i] = make(chan int)
+	//	go Count(chs[i], i)
+	//}
+	//
+	//for _, ch := range chs{
+	//	fmt.Printf("finish %d, time: %d\n", <-ch, time.Now().Nanosecond())
+	//}
 
-	var sh Shaper = q
-	if v, ok := sh.(*Square); ok{
-		fmt.Printf("v = %T\n", v)
+	fmt.Printf("test 2\n")
+	//ch := make(chan int, 1)
+	//i := 0
+	//for{
+	//	select{
+	//		case ch <- 0:
+	//		case ch <- 1:
+	//		case ch <- 2:
+	//		case ch <- 3:
+	//	}
+	//	fmt.Println("value = ", <-ch)
+	//	i++
+	//	if i >= 100 {
+	//		break
+	//	}
+	//}
+	ch2 := make(chan int, 16)
+	go Read(ch2)
+
+	for v := range ch2 {
+		fmt.Printf("Get %d elems from channel at %d\n", v, time.Now().Nanosecond())
 	}
 }
