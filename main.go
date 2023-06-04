@@ -1,60 +1,42 @@
+/*
+2023.6.4
+试验mysql插件一些东西，包括:
+multiStates, transaction
+*/
 package main
 
 import (
+	"database/sql"
 	"fmt"
-	"math/rand"
+	_ "github.com/go-sql-driver/mysql"
 	"time"
 )
 
-func Count(ch chan int, i int) {
-	time.Sleep(3 * 1e9)
-	fmt.Printf("Counting %d, time: %d\n", i, time.Now().Nanosecond())
-	ch <- i
-}
-
-func Read(ch chan int) {
-	for i := 0; i < 10; i++ {
-		v := rand.Int() & 15
-		for j := 0; j < v; j++ {
-			ch <- j
-		}
-		fmt.Printf("Read %d numbers at time %d\n", v, time.Now().Nanosecond())
-	}
-	close(ch)
-}
-
 func main() {
-	fmt.Printf("Start at %d\n", time.Now().Nanosecond())
-	//chs := make([]chan int , 10)
-	//for i := 0; i < 10; i++{
-	//	chs[i] = make(chan int)
-	//	go Count(chs[i], i)
-	//}
-	//
-	//for _, ch := range chs{
-	//	fmt.Printf("finish %d, time: %d\n", <-ch, time.Now().Nanosecond())
-	//}
-
-	fmt.Printf("test 2\n")
-	//ch := make(chan int, 1)
-	//i := 0
-	//for{
-	//	select{
-	//		case ch <- 0:
-	//		case ch <- 1:
-	//		case ch <- 2:
-	//		case ch <- 3:
-	//	}
-	//	fmt.Println("value = ", <-ch)
-	//	i++
-	//	if i >= 100 {
-	//		break
-	//	}
-	//}
-	ch2 := make(chan int, 16)
-	go Read(ch2)
-
-	for v := range ch2 {
-		fmt.Printf("Get %d elems from channel at %d\n", v, time.Now().Nanosecond())
+	dsn := "root:Abc123..@(localhost:3306)/chasinglight?multiStatements=true"
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		fmt.Println("Open mysql error: ", err.Error())
+		return
 	}
+	defer db.Close()
+
+	stmt, err := db.Prepare("SELECT `rid`, `account`, `gender`, `reg_time`, `reg_ip`, `reg_device` FROM `role` WHERE `rid` = ?; INSERT INTO `log` (`rid`, `time`, `op`, `log`) VALUES(?, ?, ?, ?)")
+	if err != nil {
+		fmt.Println("Prepare error: ", err.Error())
+		return
+	}
+	defer stmt.Close()
+
+	row := stmt.QueryRow(1, 1, time.Now().UnixMilli(), 0, "")
+	var rid, gender int
+	var reg_time int64
+	var account, reg_ip, reg_device string
+	err = row.Scan(&rid, &account, &gender, &reg_time, &reg_ip, &reg_device)
+	if err != nil {
+		fmt.Println("Query error: ", err.Error())
+		return
+	}
+
+	fmt.Println("rid =", rid, ", account =", account, ", gender =", gender, ", reg_time =", reg_time, ", reg_ip =", reg_ip, "reg_device =", reg_device)
 }
