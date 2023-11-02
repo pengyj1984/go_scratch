@@ -1,0 +1,99 @@
+/*
+测试使用 prepare 和 不使用 prepare 进行插入数据操作。
+分别使用prepare 和 不适用 prepare 插入数据。同一个表，插入1000条数据分别测试10次，插入5000条数据分别测试5次，耗时如下(ms)
+
+	使用 Prepare									不适用 Prepare
+	插入1000条数据		插入5000条数据			插入1000条数据			插入5000条数据
+
+1	21131				131417					23057					111397
+2	20051				126236					25389					120541
+3	22221				100541					13969					122457
+4 	16947				106584					26385					120773
+5	19374				114517					24955					136579
+6	24317										24252
+7	26008										26839
+8	18988										19921
+9	26872										28790
+10	17727										24083
+avg	21363.6				115859					23764					122349.4
+
+可见使用 prepare 效率更高，大约高出5%~10%
+*/
+package main
+
+import (
+	"database/sql"
+	"fmt"
+	_ "github.com/go-sql-driver/mysql"
+	"log"
+	"time"
+)
+
+func main() {
+	num := 0
+	ch := make(chan string)
+	defer close(ch)
+
+	go func() {
+		start := time.Now().UnixMilli()
+		dsn := "root:Abc123..@(192.168.1.88:3306)/test"
+		db, err := sql.Open("mysql", dsn)
+		if err != nil {
+			log.Println("Open mysql error:", err.Error())
+			return
+		}
+		defer db.Close()
+
+		stmt, err := db.Prepare("INSERT INTO `role` (`activate_days`, `last_login_time`, `data`) VALUES(?, ?, ?)")
+		if err != nil {
+			log.Println("Prepare error:", err.Error())
+			return
+		}
+		defer stmt.Close()
+
+		for i := 0; i < 5000; i++ {
+			now := time.Now().Unix()
+			_, err = stmt.Exec(0, now, "prepared")
+			if err != nil {
+				log.Println("execute error:", err.Error())
+			}
+		}
+
+		diff := time.Now().UnixMilli() - start
+		ch <- fmt.Sprintf("prepare insert cost: %d", diff)
+	}()
+
+	//go func() {
+	//	start := time.Now().UnixMilli()
+	//	dsn := "root:Abc123..@(192.168.1.88:3306)/test"
+	//	db, err := sql.Open("mysql", dsn)
+	//	if err != nil {
+	//		log.Println("Open mysql error:", err.Error())
+	//		return
+	//	}
+	//	defer db.Close()
+	//
+	//	for i := 0; i < 5000; i++ {
+	//		now := time.Now().Unix()
+	//		_, err = db.Exec("INSERT INTO `role` (`activate_days`, `last_login_time`, `data`) VALUES(?, ?, ?)", 0, now, "")
+	//		if err != nil {
+	//			log.Println("execute error:", err.Error())
+	//		}
+	//	}
+	//
+	//	diff := time.Now().UnixMilli() - start
+	//	ch <- fmt.Sprintf("insert cost: %d", diff)
+	//}()
+
+	for {
+		select {
+		case str := <-ch:
+			log.Println(str)
+			num++
+		}
+
+		if num >= 1 {
+			return
+		}
+	}
+}
