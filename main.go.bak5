@@ -9,6 +9,9 @@
 性能差距还是挺明显的。
 
 另外，在同一时间并发连接很多的时候，会出现一些警告，比如连接被拒，还有sql语句执行较慢等。但是所有操作都还是成功了。
+
+在gormWithPool() 函数中写了几种查询方式，Take()，Find()，Select().Where().Find()；注: 直接用Take和Find均是指定了主键的情况。
+其中 Take 和 Select.where.find 的执行效率差不多。但是直接 Find的效率差很多。
 */
 package main
 
@@ -61,7 +64,7 @@ func main() {
 
 	start := time.Now().UnixMilli()
 	for i := 1; i <= 1000; i++ {
-		go normalWithPool(i)
+		go gormWithPool(i)
 	}
 
 	var success, failed int = 0, 0
@@ -147,7 +150,9 @@ func gormWithPool(id int) {
 		PrepareStmt: true,
 	})
 	role.Id = id
-	tx.Select("id, activate_days, last_login_time, data").Where("id = ?", id).Find(&role)
+	//tx.Select("id, activate_days, last_login_time, data").Where("id = ?", id).Find(&role)
+	tx.Take(&role)
+	//tx.Find(&role)
 	now := time.Now().Unix()
 	role.LastLoginTime = now
 	role.ActivateDays++
