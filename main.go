@@ -1,228 +1,77 @@
 /*
-测试是否使用 connections pool 的性能差异。以及观察高并发时的行为。
-测试了四种形式，使用gorm和普通方式，每种方式测试使用连接池和不使用连接池。
-内容是读取数据库中的数据，然后修改数据更新到数据库。
-但是这次测试每次运行只测试一种情况，不像之前测试同时跑几个情况，所以同样操作1000条数据，速度明显比之前快得多。
-结果大致是使用gorm和不适用gorm性能差不多，主要还是看使用习惯。
-使用池的时间大概 0.4s 到 2s 之间。
-不适用池的时间为 3s 到 4s。
-性能差距还是挺明显的。
-
-另外，在同一时间并发连接很多的时候，会出现一些警告，比如连接被拒，还有sql语句执行较慢等。但是所有操作都还是成功了。
-
-在gormWithPool() 函数中写了几种查询方式，Take()，Find()，Select().Where().Find()；注: 直接用Take和Find均是指定了主键的情况。
-其中 Take 和 Select.where.find 的执行效率差不多。但是直接 Find的效率差很多。
-*/
+ */
 package main
 
 import (
-	"database/sql"
-	_ "github.com/go-sql-driver/mysql"
-	"gorm.io/driver/mysql"
-	"gorm.io/gorm"
+	"fmt"
+	"io"
 	"log"
-	"time"
+	"net/http"
 )
 
-type Role struct {
-	Id            int    `gorm:"column:id;PRIMARY_KEY"`
-	ActivateDays  int    `gorm:"column:activate_days;not null"`
-	LastLoginTime int64  `gorm:"column:last_login_time;not null"`
-	Data          string `gorm:"column:data;not null"`
+type DailyData struct {
+	FxDate         string `json:"fxDate"`         // 预报日期
+	Sunrise        string `json:"sunrise"`        // 日出时间，在高纬度地区可能为空
+	Sunset         string `json:"sunset"`         // 日落时间，在高纬度地区可能为空
+	Moonrise       string `json:"moonrise"`       // 当天月升时间，可能为空
+	Moonset        string `json:"moonset"`        // 当天月落时间，可能为空
+	MoonPhase      string `json:"moonPhase"`      // 月相名称
+	MoonPhaseIcon  string `json:"moonPhaseIcon"`  // 月相图标代码，另请参考天气图标项目
+	TempMax        string `json:"tempMax"`        // 预报当天最高温度
+	TempMin        string `json:"tempMin"`        // 预报当天最低温度
+	IconDay        string `json:"iconDay"`        // 预报白天天气状况的图标代码，另请参考天气图标项目
+	TextDay        string `json:"textDay"`        // 预报白天天气状况文字描述，包括阴晴雨雪等天气状态的描述
+	IconNight      string `json:"iconNight"`      // 预报夜间天气状况的图标代码，另请参考天气图标项目
+	TextNight      string `json:"textNight"`      // 预报晚间天气状况文字描述，包括阴晴雨雪等天气状态的描述
+	Wind360Day     string `json:"wind360day"`     // 预报白天风向360角度
+	WindDirDay     string `json:"windDirDay"`     // 预报白天风向
+	WindScaleDay   string `json:"windScaleDay"`   // 预报白天风力等级
+	WindSpeedDay   string `json:"windSpeedDay"`   // 预报白天风速，公里/小时
+	Wind360Night   string `json:"wind360Night"`   // 预报夜间风向360角度
+	WindDirNight   string `json:"windDirNight"`   // 预报夜间当天风向
+	WindScaleNight string `json:"windScaleNight"` // 预报夜间风力等级
+	WindSpeedNight string `json:"windSpeedNight"` // 预报夜间风速，公里/小时
+	Precip         string `json:"precip"`         // 预报当天总降水量，默认单位：毫米
+	UvIndex        string `json:"uvIndex"`        // 紫外线强度指数
+	Humidity       string `json:"humidity"`       // 相对湿度，百分比数值
+	Pressure       string `json:"pressure"`       // 大气压强，默认单位：百帕
+	Vis            string `json:"vis"`            // 能见度，默认单位：公里
+	Cloud          string `json:"cloud"`          // 云量，百分比数值。可能为空
 }
 
-func (Role) TableName() string {
-	return "role"
+type ReferData struct {
+	Sources []string `json:"sources"` // 原始数据来源，或数据源说明，可能为空
+	License []string `json:"license"` // 数据许可或版权声明，可能为空
 }
 
-var ch chan int
-var dsn string
-
-var _db *gorm.DB
-
-func getDB() *gorm.DB {
-	return _db
-}
-
-var _db2 *sql.DB
-
-func getDB2() *sql.DB {
-	return _db2
+type Data struct {
+	Code       string      `json:"code"`       // 请参考状态码
+	UpdateTime string      `json:"updateTime"` // 当前API的最近更新时间
+	fxLink     string      `json:"fxLink"`     // 当前数据的响应式页面，便于嵌入网站或应用
+	Daily      []DailyData `json:"daily"`
+	Refer      ReferData   `json:"refer"`
 }
 
 func main() {
-	num := 0
-	ch = make(chan int)
-	defer close(ch)
-	dsn = "root:Abc123..@(192.168.1.88:3306)/test"
-
-	err := initDB()
+	url := fmt.Sprintf("https://devapi.qweather.com/v7/weather/7d?key=%s&location=%s", "3fec77b74e8d4d3a9b739bd7b88611ad", "101040100")
+	httpReq, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		log.Fatalln("init db err:", err.Error())
-	}
-	defer closeDB()
-
-	start := time.Now().UnixMilli()
-	for i := 1; i <= 1000; i++ {
-		go gormWithPool(i)
-	}
-
-	var success, failed int = 0, 0
-	for {
-		select {
-		case r := <-ch:
-			if r == 0 {
-				success++
-			} else {
-				failed++
-			}
-			num++
-		}
-
-		if num >= 1000 {
-			break
-		}
-	}
-
-	diff := time.Now().UnixMilli() - start
-	log.Println("success:", success)
-	log.Println("failed:", failed)
-	log.Println("finish, total cost:", diff)
-}
-
-func initDB() error {
-	var err error
-	_db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
-	if err != nil {
-		return err
-	}
-	_sqlDB, _ := _db.DB()
-	_sqlDB.SetMaxOpenConns(100)
-
-	_db2, err = sql.Open("mysql", dsn)
-	if err != nil {
-		return err
-	}
-	_db2.SetMaxOpenConns(100)
-
-	return nil
-}
-
-func closeDB() {
-	_sqlDB, _ := _db.DB()
-	_sqlDB.Close()
-
-	_db2.Close()
-}
-
-func gormWithoutPool(id int) {
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
-	if err != nil {
-		ch <- 1
-		return
-	}
-	_sqlDB, _ := db.DB()
-	defer _sqlDB.Close()
-
-	var role Role
-	tx := db.Session(&gorm.Session{
-		PrepareStmt: true,
-	})
-	role.Id = id
-	tx.Select("id, activate_days, last_login_time, data").Where("id = ?", id).Find(&role)
-	now := time.Now().Unix()
-	role.LastLoginTime = now
-	role.ActivateDays++
-	err = tx.Save(&role).Error
-	if err != nil {
-		ch <- 1
+		log.Println("get error:", err.Error())
 		return
 	}
 
-	ch <- 0
-}
-
-func gormWithPool(id int) {
-	db := getDB()
-
-	var role Role
-	tx := db.Session(&gorm.Session{
-		PrepareStmt: true,
-	})
-	role.Id = id
-	//tx.Select("id, activate_days, last_login_time, data").Where("id = ?", id).Find(&role)
-	tx.Take(&role)
-	//tx.Find(&role)
-	now := time.Now().Unix()
-	role.LastLoginTime = now
-	role.ActivateDays++
-	err := tx.Save(&role).Error
+	httpRsp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
-		ch <- 1
+		log.Println("do error:", err.Error())
+		return
+	}
+	defer httpRsp.Body.Close()
+
+	rspBody, err := io.ReadAll(httpRsp.Body)
+	if err != nil {
+		log.Println("read error:", err.Error())
 		return
 	}
 
-	ch <- 0
-}
-
-func normalWithoutPool(id int) {
-	db, err := sql.Open("mysql", dsn)
-	if err != nil {
-		ch <- 1
-		return
-	}
-	defer db.Close()
-
-	stmt, err := db.Prepare("SELECT `activate_days`, `last_login_time`, `data` FROM `role` WHERE `id` = ?")
-	if err != nil {
-		ch <- 1
-		return
-	}
-	defer stmt.Close()
-	row := stmt.QueryRow(id)
-	var activateDays sql.NullInt32
-	var lastLoginTime sql.NullInt64
-	var data sql.NullString
-	err = row.Scan(&activateDays, &lastLoginTime, &data)
-	if err != nil {
-		ch <- 1
-		return
-	}
-
-	now := time.Now().Unix()
-	_, err = db.Exec("UPDATE `role` SET `activate_days` = ?, `last_login_time` = ? WHERE `id` = ?", activateDays.Int32+1, now, id)
-	if err != nil {
-		ch <- 1
-		return
-	}
-
-	ch <- 0
-}
-
-func normalWithPool(id int) {
-	db := getDB2()
-	stmt, err := db.Prepare("SELECT `activate_days`, `last_login_time`, `data` FROM `role` WHERE `id` = ?")
-	if err != nil {
-		ch <- 1
-		return
-	}
-	defer stmt.Close()
-	row := stmt.QueryRow(id)
-	var activateDays sql.NullInt32
-	var lastLoginTime sql.NullInt64
-	var data sql.NullString
-	err = row.Scan(&activateDays, &lastLoginTime, &data)
-	if err != nil {
-		ch <- 1
-		return
-	}
-
-	now := time.Now().Unix()
-	_, err = db.Exec("UPDATE `role` SET `activate_days` = ?, `last_login_time` = ? WHERE `id` = ?", activateDays.Int32+1, now, id)
-	if err != nil {
-		ch <- 1
-		return
-	}
-
-	ch <- 0
+	log.Println("rspBody =", string(rspBody))
 }
