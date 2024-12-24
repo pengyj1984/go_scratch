@@ -1,5 +1,6 @@
 /*
- */
+用来学习研究 golang 原生http服务的中间件逻辑
+*/
 package main
 
 import (
@@ -8,6 +9,7 @@ import (
 )
 
 func CORSMiddleware(next http.Handler) http.Handler {
+	log.Println("CORSMiddleware")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Println("COSMiddleware...")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -18,6 +20,7 @@ func CORSMiddleware(next http.Handler) http.Handler {
 }
 
 func CORSMiddleware2(next http.Handler) http.Handler {
+	log.Println("CORSMiddleware2")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Println("COSMiddleware2...")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE, PUT")
@@ -26,6 +29,7 @@ func CORSMiddleware2(next http.Handler) http.Handler {
 }
 
 func CORSMiddleware3(next http.Handler) http.Handler {
+	log.Println("CORSMiddleware3")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Println("COSMiddleware3...")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept, Yi-Auth-Token")
@@ -45,6 +49,7 @@ func NewMiddlewareChain(middlewares ...Middleware) Middleware {
 }
 
 func DefaultHandler(w http.ResponseWriter, r *http.Request) {
+	log.Println("DefaultHandler...")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }
@@ -54,6 +59,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/", middlewareChain(http.HandlerFunc(DefaultHandler)))
+	mux.HandleFunc("/favicon.ico", DefaultHandler)
 
 	err := http.ListenAndServe(":3000", mux)
 	if err != nil {
